@@ -80,11 +80,12 @@ services:
         if [ ! -f /home/node/.openclaw/openclaw.json ]; then
           prov=""; key=""
           if [ "$$OPENCLAW_USE_CODEX" = "1" ]; then prov=openai; key="$$OPENAI_API_KEY"
+          elif [ -n "$$GROQ_API_KEY" ]; then prov=groq; key="$$GROQ_API_KEY"
           elif [ -n "$$ANTHROPIC_API_KEY" ]; then prov=anthropic; key="$$ANTHROPIC_API_KEY"
           elif [ -n "$$OPENAI_API_KEY" ]; then prov=openai; key="$$OPENAI_API_KEY"
           elif [ -n "$$GEMINI_API_KEY" ]; then prov=gemini; key="$$GEMINI_API_KEY"
           fi
-          if [ -z "$$key" ]; then echo "[entrypoint] ERROR: set a provider key in docker/.env (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY)"; exit 1; fi
+          if [ -z "$$key" ]; then echo "[entrypoint] ERROR: set a provider key in docker/.env (GROQ_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY)"; exit 1; fi
           echo "[entrypoint] no openclaw.json; onboarding $$prov-api-key in-container..."
           tok=""
           if [ -n "$$OPENCLAW_GATEWAY_TOKEN" ]; then tok="--gateway-token $$OPENCLAW_GATEWAY_TOKEN"; fi
