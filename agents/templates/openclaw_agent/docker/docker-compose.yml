@@ -48,16 +48,21 @@ services:
       #    and point OPENCLAW_CONFIG_PATH at the copy. The host config is
       #    left untouched.
       # 2. `agents.defaults.models` is OpenClaw's strict allowlist for the
-      #    `x-openclaw-model` header — provider/* wildcards apply to the
-      #    `/model` picker only, NOT to API header validation (verified
-      #    against http-utils-3xCgv22F.js:47 + model-selection-shared-
-      #    DOxyWoaQ.js:480 in v2026.5.7: `allowAny = rawAllowlist.length
-      #    === 0`). Onboarding typically seeds it with sonnet+haiku, which
-      #    makes OPENCLAW_MODEL=openai/gpt-5 fail with 400. We strip it
-      #    so any provider/model the daemon has a credential for is
-      #    callable via the env var. Provider plugins themselves auto-load
-      #    from API keys in the container env — `plugins.entries` doesn't
-      #    need to list each provider for routing.
+      #    `x-openclaw-model` header. Onboarding typically seeds it with
+      #    sonnet+haiku, which makes e.g. OPENCLAW_MODEL=groq/... fail with
+      #    404 "Unknown model". Earlier revisions of this file *deleted*
+      #    the key on the theory that an absent allowlist means "allow
+      #    any" (per a since-stale comment citing v2026.5.7 internals) --
+      #    verified NOT true against v2026.9.2: deleting it 404s on every
+      #    model, including the one that just onboarded successfully as
+      #    the default (confirmed live: `openclaw models list --provider
+      #    groq --json` showed the model as available, but the same
+      #    string 404'd from /v1/chat/completions until it was actually
+      #    present in agents.defaults.models). Fix: populate the allowlist
+      #    from the onboarded provider's real catalog (`models list
+      #    --provider $$prov --json`) instead of deleting it -- this is
+      #    what actually makes "any model the daemon has a credential for
+      #    is callable" true, for every provider this script supports.
       # 3. The OpenAI-compat `/v1/chat/completions` endpoint is opt-in
       #    (`gateway.http.endpoints.chatCompletions.enabled`). Onboarding
       #    doesn't enable it, and the ARC agent talks to this endpoint, so
@@ -77,14 +82,18 @@ services:
       - sh
       - -ec
       - |
+        # Provider detection runs unconditionally (not just on first boot)
+        # so the models-allowlist step below always knows which provider's
+        # catalog to pull from, including on a restart where onboarding
+        # itself is skipped because openclaw.json already exists.
+        prov=""; key=""
+        if [ "$$OPENCLAW_USE_CODEX" = "1" ]; then prov=openai; key="$$OPENAI_API_KEY"
+        elif [ -n "$$GROQ_API_KEY" ]; then prov=groq; key="$$GROQ_API_KEY"
+        elif [ -n "$$ANTHROPIC_API_KEY" ]; then prov=anthropic; key="$$ANTHROPIC_API_KEY"
+        elif [ -n "$$OPENAI_API_KEY" ]; then prov=openai; key="$$OPENAI_API_KEY"
+        elif [ -n "$$GEMINI_API_KEY" ]; then prov=gemini; key="$$GEMINI_API_KEY"
+        fi
         if [ ! -f /home/node/.openclaw/openclaw.json ]; then
-          prov=""; key=""
-          if [ "$$OPENCLAW_USE_CODEX" = "1" ]; then prov=openai; key="$$OPENAI_API_KEY"
-          elif [ -n "$$GROQ_API_KEY" ]; then prov=groq; key="$$GROQ_API_KEY"
-          elif [ -n "$$ANTHROPIC_API_KEY" ]; then prov=anthropic; key="$$ANTHROPIC_API_KEY"
-          elif [ -n "$$OPENAI_API_KEY" ]; then prov=openai; key="$$OPENAI_API_KEY"
-          elif [ -n "$$GEMINI_API_KEY" ]; then prov=gemini; key="$$GEMINI_API_KEY"
-          fi
           if [ -z "$$key" ]; then echo "[entrypoint] ERROR: set a provider key in docker/.env (GROQ_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY)"; exit 1; fi
           echo "[entrypoint] no openclaw.json; onboarding $$prov-api-key in-container..."
           tok=""
@@ -110,6 +119,14 @@ services:
           echo "[entrypoint] running openclaw doctor --fix..."
           node openclaw.mjs doctor --fix
         fi
+        # Pull the onboarded provider's real model catalog so the patch
+        # below can register real models instead of guessing or leaving
+        # the registry empty.
+        export prov
+        if [ -n "$$prov" ]; then
+          node openclaw.mjs models list --provider "$$prov" --json > /tmp/openclaw-models.json 2>/tmp/openclaw-models.err \
+            || echo "[entrypoint] WARNING: 'models list --provider $$prov' failed, see /tmp/openclaw-models.err; registry will be empty for this provider"
+        fi
         cp /home/node/.openclaw/openclaw.json /tmp/openclaw.json
         node -e "
           const fs = require('fs');
@@ -117,7 +134,48 @@ services:
           c.agents = c.agents || {};
           c.agents.defaults = c.agents.defaults || {};
           c.agents.defaults.workspace = '/home/node/.openclaw/workspace';
-          delete c.agents.defaults.models;
+          c.agents.defaults.models = c.agents.defaults.models || {};
+          const prov = process.env.prov;
+          try {
+            const catalog = JSON.parse(fs.readFileSync('/tmp/openclaw-models.json', 'utf8'));
+            // Two distinct registries are needed, per a live 'Unknown
+            // model' error dump: agents.defaults.models is the allowlist
+            // for the x-openclaw-model header; models.providers[prov]
+            // .models[] is the actual per-provider model registry the
+            // header value is validated against. A model missing from
+            // EITHER 404s, even if the other lists it.
+            c.models = c.models || {};
+            c.models.providers = c.models.providers || {};
+            c.models.providers[prov] = c.models.providers[prov] || {};
+            // Groq's plugin registers the provider but not a baseUrl/api,
+            // so the openai-compat transport rejects it with 'requires an
+            // explicit base URL' (confirmed live). Anthropic/OpenAI/Gemini
+            // use their own native transports and do NOT need this -- only
+            // set it for providers confirmed to need the OpenAI-compat
+            // proxy shape (docs.openclaw.ai/concepts/model-providers).
+            const OPENAI_COMPAT_BASE_URLS = { groq: 'https://api.groq.com/openai/v1' };
+            if (OPENAI_COMPAT_BASE_URLS[prov] && !c.models.providers[prov].baseUrl) {
+              c.models.providers[prov].baseUrl = OPENAI_COMPAT_BASE_URLS[prov];
+              c.models.providers[prov].api = 'openai-completions';
+            }
+            const existingIds = new Set(
+              (c.models.providers[prov].models || []).map((m) => m.id)
+            );
+            c.models.providers[prov].models = c.models.providers[prov].models || [];
+            for (const m of (catalog.models || [])) {
+              c.agents.defaults.models[m.key] = c.agents.defaults.models[m.key] || {};
+              // m.key is '<prov>/<model-id>' (model-id may itself contain
+              // slashes, e.g. 'openai/gpt-oss-120b' under groq) -- strip
+              // exactly the leading '<prov>/' to get the registry id.
+              const id = m.key.startsWith(prov + '/') ? m.key.slice(prov.length + 1) : m.key;
+              if (!existingIds.has(id)) {
+                c.models.providers[prov].models.push({ id, name: m.name || id });
+                existingIds.add(id);
+              }
+            }
+          } catch (e) {
+            console.error('[entrypoint] no model catalog to merge (' + e.message + ')');
+          }
           c.gateway = c.gateway || {};
           c.gateway.http = c.gateway.http || {};
           c.gateway.http.endpoints = c.gateway.http.endpoints || {};
