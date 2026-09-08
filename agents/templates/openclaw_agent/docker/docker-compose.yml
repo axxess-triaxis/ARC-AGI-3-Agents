@@ -88,8 +88,16 @@ services:
           echo "[entrypoint] no openclaw.json; onboarding $$prov-api-key in-container..."
           tok=""
           if [ -n "$$OPENCLAW_GATEWAY_TOKEN" ]; then tok="--gateway-token $$OPENCLAW_GATEWAY_TOKEN"; fi
+          # Anthropic has no "anthropic-api-key" --auth-choice value (verified
+          # against the pulled image's own onboarding --help and
+          # docs.openclaw.ai/providers/anthropic, which onboards it via the
+          # bare --anthropic-api-key flag with no --auth-choice at all).
+          # OpenAI/Gemini DO have a matching "<prov>-api-key" --auth-choice,
+          # so only Anthropic skips it here.
+          authchoice=""
+          if [ "$$prov" != "anthropic" ]; then authchoice="--auth-choice $$prov-api-key"; fi
           openclaw onboard --non-interactive --accept-risk \
-            --auth-choice "$$prov-api-key" --"$$prov-api-key" "$$key" \
+            $$authchoice --"$$prov-api-key" "$$key" \
             --gateway-auth token $$tok --gateway-bind loopback --gateway-port 18789 \
             --flow quickstart --skip-channels --skip-skills --skip-health
         fi
