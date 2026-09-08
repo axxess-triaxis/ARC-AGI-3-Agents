@@ -33,6 +33,12 @@ class LLM(Agent):
         self.messages = []
         self.token_counter = 0
 
+    def _build_client(self) -> OpenAIClient:
+        """Hook so a subclass can point at a different OpenAI-compatible
+        endpoint (e.g. Groq, a local server) without duplicating the rest
+        of choose_action -- default behavior (real OpenAI) is unchanged."""
+        return OpenAIClient(api_key=os.environ.get("OPENAI_API_KEY", ""))
+
     @property
     def name(self) -> str:
         obs = "with-observe" if self.DO_OBSERVATION else "no-observe"
@@ -60,7 +66,7 @@ class LLM(Agent):
         logging.getLogger("openai").setLevel(logging.CRITICAL)
         logging.getLogger("httpx").setLevel(logging.CRITICAL)
 
-        client = OpenAIClient(api_key=os.environ.get("OPENAI_API_KEY", ""))
+        client = self._build_client()
 
         functions = self.build_functions()
         tools = self.build_tools()

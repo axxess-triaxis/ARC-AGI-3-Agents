@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from .agent import Agent, Playback
 from .recorder import Recorder
 from .swarm import Swarm
+from .templates.groq_agent import GroqReasoningAgent
 from .templates.langgraph_functional_agent import LangGraphFunc, LangGraphTextOnly
 from .templates.langgraph_random_agent import LangGraphRandom
 from .templates.langgraph_thinking import LangGraphThinking
@@ -32,6 +33,8 @@ AVAILABLE_AGENTS["reasoningagent"] = ReasoningAgent
 # OpenClawVision subclasses OpenClaw, not Agent directly, so it isn't picked
 # up by the Agent.__subclasses__() scan above -- register it explicitly.
 AVAILABLE_AGENTS["openclawvision"] = OpenClawVision
+# Same reason: GroqReasoningAgent subclasses ReasoningLLM, not Agent directly.
+AVAILABLE_AGENTS["groqreasoningagent"] = GroqReasoningAgent
 
 __all__ = [
     "Swarm",
@@ -45,6 +48,7 @@ __all__ = [
     "ReasoningLLM",
     "GuidedLLM",
     "ReasoningAgent",
+    "GroqReasoningAgent",
     "SmolCodingAgent",
     "SmolVisionAgent",
     "Agent",
