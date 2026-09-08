@@ -10,7 +10,7 @@ from .templates.langgraph_random_agent import LangGraphRandom
 from .templates.langgraph_thinking import LangGraphThinking
 from .templates.llm_agents import LLM, FastLLM, GuidedLLM, ReasoningLLM
 from .templates.multimodal import MultiModalLLM
-from .templates.openclaw_agent import OpenClaw
+from .templates.openclaw_agent import OpenClaw, OpenClawVision
 from .templates.random_agent import Random
 from .templates.reasoning_agent import ReasoningAgent
 from .templates.smolagents import SmolCodingAgent, SmolVisionAgent
@@ -29,6 +29,9 @@ for rec in Recorder.list():
 
 # update the agent dictionary to include subclasses of LLM class
 AVAILABLE_AGENTS["reasoningagent"] = ReasoningAgent
+# OpenClawVision subclasses OpenClaw, not Agent directly, so it isn't picked
+# up by the Agent.__subclasses__() scan above -- register it explicitly.
+AVAILABLE_AGENTS["openclawvision"] = OpenClawVision
 
 __all__ = [
     "Swarm",
@@ -50,4 +53,5 @@ __all__ = [
     "AVAILABLE_AGENTS",
     "MultiModalLLM",
     "OpenClaw",
+    "OpenClawVision",
 ]
