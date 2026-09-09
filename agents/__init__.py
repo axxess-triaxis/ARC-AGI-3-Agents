@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from .agent import Agent, Playback
 from .recorder import Recorder
 from .swarm import Swarm
+from .templates.gra_agent import GRAAgent
 from .templates.groq_agent import GroqReasoningAgent
 from .templates.langgraph_functional_agent import LangGraphFunc, LangGraphTextOnly
 from .templates.langgraph_random_agent import LangGraphRandom
@@ -49,6 +50,7 @@ __all__ = [
     "GuidedLLM",
     "ReasoningAgent",
     "GroqReasoningAgent",
+    "GRAAgent",
     "SmolCodingAgent",
     "SmolVisionAgent",
     "Agent",
