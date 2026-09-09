@@ -6,6 +6,7 @@ from .agent import Agent, Playback
 from .recorder import Recorder
 from .swarm import Swarm
 from .templates.gra_agent import GRAAgent
+from .templates.gra_llm_agent import GRALLMAgent
 from .templates.groq_agent import GroqReasoningAgent
 from .templates.langgraph_functional_agent import LangGraphFunc, LangGraphTextOnly
 from .templates.langgraph_random_agent import LangGraphRandom
@@ -36,6 +37,8 @@ AVAILABLE_AGENTS["reasoningagent"] = ReasoningAgent
 AVAILABLE_AGENTS["openclawvision"] = OpenClawVision
 # Same reason: GroqReasoningAgent subclasses ReasoningLLM, not Agent directly.
 AVAILABLE_AGENTS["groqreasoningagent"] = GroqReasoningAgent
+# Same reason: GRALLMAgent subclasses GRAAgent, not Agent directly.
+AVAILABLE_AGENTS["grallmagent"] = GRALLMAgent
 
 __all__ = [
     "Swarm",
@@ -51,6 +54,7 @@ __all__ = [
     "ReasoningAgent",
     "GroqReasoningAgent",
     "GRAAgent",
+    "GRALLMAgent",
     "SmolCodingAgent",
     "SmolVisionAgent",
     "Agent",

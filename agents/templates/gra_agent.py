@@ -36,6 +36,7 @@ from arcengine import FrameData, GameAction, GameState
 from envs.base import Observation
 from gra.control.loop import ControlLoop
 from gra.cortex import Cortex
+from gra.reasoner import Reasoner
 
 from ..agent import Agent
 
@@ -264,10 +265,16 @@ class GRAAgent(Agent):
         super().__init__(*args, **kwargs)
         # Fresh every time -- see module docstring on the zero-context
         # requirement. No persistence.* import anywhere in this class.
-        self.cortex = Cortex(objective=_NO_OBJECTIVE_TEXT)
+        self.cortex = Cortex(objective=_NO_OBJECTIVE_TEXT, reasoner=self._build_reasoner())
         self.control_loop = ControlLoop(self.cortex)
         self.translator = FrameTranslator()
         self._finalized = False
+
+    def _build_reasoner(self) -> Reasoner | None:
+        """Hook for subclasses to plug in a different Reasoner (e.g. an
+        LLM-backed one -- see gra_llm_agent.py). None uses Cortex's own
+        default, HeuristicReasoner."""
+        return None
 
     def is_done(self, frames: list[FrameData], latest_frame: FrameData) -> bool:
         return latest_frame.state in (GameState.WIN, GameState.GAME_OVER)
