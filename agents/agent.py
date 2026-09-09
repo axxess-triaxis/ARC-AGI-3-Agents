@@ -5,6 +5,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
+import requests
 from arc_agi import EnvironmentWrapper
 from arc_agi.scorecard import EnvironmentScorecard
 from arcengine import FrameData, FrameDataRaw, GameAction, GameState
@@ -14,6 +15,25 @@ from .recorder import Recorder
 from .tracing import trace_agent_session
 
 logger = logging.getLogger()
+
+# Transient-network-error retry for the one outbound call every agent makes
+# every turn (arc_env.step()). Confirmed live 2026-09-09: a real
+# RemoteDisconnected from ARC-AGI-3's own game server killed a 51-action-deep
+# GRAAgent run outright -- do_action_request() had no retry at all, so any
+# transport hiccup (not a real API error response, just the connection itself
+# failing or timing out) ended the whole game.
+#
+# Deliberately narrow to ConnectionError/Timeout, NOT the broader
+# requests.exceptions.RequestException: a real error *response* from the API
+# (HTTPError, raised only if the server actually replied with a rejection)
+# must still propagate immediately -- retrying a legitimate rejection could
+# resubmit an action the server already processed.
+_RETRYABLE_ACTION_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+)
+_ACTION_REQUEST_RETRY_ATTEMPTS = 3
+_ACTION_REQUEST_RETRY_BACKOFF_SECONDS = 2.0
 
 
 class Agent(ABC):
@@ -138,8 +158,31 @@ class Agent(ABC):
         reasoning = getattr(action, "reasoning", None)
         if reasoning is not None and not isinstance(reasoning, dict):
             reasoning = {"text": str(reasoning)}
-        raw = self.arc_env.step(action, data=data, reasoning=reasoning)
-        return self._convert_raw_frame_data(raw)
+
+        last_error: Optional[Exception] = None
+        for attempt in range(1, _ACTION_REQUEST_RETRY_ATTEMPTS + 1):
+            try:
+                raw = self.arc_env.step(action, data=data, reasoning=reasoning)
+                return self._convert_raw_frame_data(raw)
+            except _RETRYABLE_ACTION_ERRORS as e:
+                last_error = e
+                if attempt < _ACTION_REQUEST_RETRY_ATTEMPTS:
+                    wait = _ACTION_REQUEST_RETRY_BACKOFF_SECONDS * attempt
+                    logger.warning(
+                        f"{self.game_id} - transient network error on "
+                        f"{action.name} (attempt {attempt}/"
+                        f"{_ACTION_REQUEST_RETRY_ATTEMPTS}): {e}. Retrying in "
+                        f"{wait:.1f}s."
+                    )
+                    time.sleep(wait)
+                else:
+                    logger.error(
+                        f"{self.game_id} - transient network error on "
+                        f"{action.name} persisted after "
+                        f"{_ACTION_REQUEST_RETRY_ATTEMPTS} attempts: {e}"
+                    )
+        assert last_error is not None  # loop always returns or sets this
+        raise last_error
 
     def _convert_raw_frame_data(self, raw: FrameDataRaw | None) -> FrameData:
         if raw is None:
