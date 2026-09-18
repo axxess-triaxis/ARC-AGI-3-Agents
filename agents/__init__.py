@@ -8,6 +8,7 @@ from .swarm import Swarm
 from .templates.gra_agent import GRAAgent
 from .templates.gra_llm_agent import GRALLMAgent
 from .templates.groq_agent import GroqReasoningAgent
+from .templates.human_agent import HumanAgent
 from .templates.langgraph_functional_agent import LangGraphFunc, LangGraphTextOnly
 from .templates.langgraph_random_agent import LangGraphRandom
 from .templates.langgraph_thinking import LangGraphThinking
@@ -55,6 +56,7 @@ __all__ = [
     "GroqReasoningAgent",
     "GRAAgent",
     "GRALLMAgent",
+    "HumanAgent",
     "SmolCodingAgent",
     "SmolVisionAgent",
     "Agent",

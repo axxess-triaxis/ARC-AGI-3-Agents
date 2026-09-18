@@ -118,7 +118,21 @@ class FrameTranslator:
             tick=tick,
             objective_text=_NO_OBJECTIVE_TEXT,
             entities={
-                eid: {"color": e["color"], "centroid": e["centroid"], "size": e["size"]}
+                # "type" is what reasoner.local_signature() actually reads
+                # (used throughout Cortex, CausalModel, ExplorationController,
+                # and GraphExplorer) -- color is the natural stand-in for
+                # "kind of object" in a grid game. Confirmed live 2026-09-09:
+                # omitting it made every signature degenerate to the same
+                # placeholder regardless of real entity changes, causing
+                # near-permanent action lock-in once graph-based dead-end
+                # detection was added (a real, pre-existing bug this exposed,
+                # not new to that feature).
+                eid: {
+                    "type": str(e["color"]),
+                    "color": e["color"],
+                    "centroid": e["centroid"],
+                    "size": e["size"],
+                }
                 for eid, e in matched.items()
             },
             reliability=1.0,
@@ -330,7 +344,15 @@ class GRAAgent(Agent):
             return GameAction.from_name(available[0]) if available else GameAction.ACTION1
 
     def _apply_args(self, action: GameAction, args: dict[str, Any]) -> None:
-        if not action.is_complex:
+        # is_complex is a METHOD, not a property (confirmed live 2026-09-09
+        # via arcengine.GameAction) -- `if not action.is_complex:` is always
+        # False (a bound method is truthy), silently attaching unused x/y
+        # data to every simple action. Apparently harmless for GRAAgent
+        # (the API seems to ignore extraneous action_data on simple
+        # actions, and every live run this session completed without
+        # error) but real -- caught only because the equivalent bug in
+        # human_agent.py is NOT harmless there (see that file).
+        if not action.is_complex():
             return
         x = args.get("x")
         y = args.get("y")
