@@ -119,3 +119,73 @@ class TestGRALLMAgentChooseAction:
         # Every call returns the same action -> consensus reached on the
         # 2nd call, 3rd never made.
         assert fake_client.chat.completions.create.call_count == 2
+
+
+# --- Groq rate limits (first live run, 2026-10-05, died on a per-minute 429) ---
+
+import httpx  # noqa: E402
+from openai import RateLimitError  # noqa: E402
+
+from agents.templates import gra_llm_agent as gla  # noqa: E402
+
+
+def _rate_limit_error(message: str, retry_after: str | None = None) -> RateLimitError:
+    headers = {"retry-after": retry_after} if retry_after else {}
+    response = httpx.Response(429, headers=headers, request=httpx.Request("POST", "https://api.groq.com"))
+    return RateLimitError(message, response=response, body=None)
+
+
+_TPM = ("Rate limit reached for model `openai/gpt-oss-20b` on tokens per minute (TPM): "
+        "Limit 8000, Used 6965, Requested 1690. Please try again in 4.9125s.")
+_TPD = ("Rate limit reached for model `openai/gpt-oss-20b` on tokens per day (TPD): "
+        "Limit 200000, Used 199990, Requested 1700. Please try again in 12m3.5s.")
+
+
+def _ok(text: str):
+    return MagicMock(choices=[MagicMock(message=MagicMock(content=text))])
+
+
+def test_per_minute_429_waits_as_told_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = _make_agent(monkeypatch)
+    sleeps: list[float] = []
+    monkeypatch.setattr(gla.time, "sleep", sleeps.append)
+    client = MagicMock()
+    client.chat.completions.create.side_effect = [_rate_limit_error(_TPM), _ok("answer")]
+
+    assert agent._make_chat_fn(client)("prompt") == "answer"
+    assert sleeps == [pytest.approx(5.4125)]
+    assert client.chat.completions.create.call_count == 2
+
+
+def test_retry_after_header_wins_over_the_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = _make_agent(monkeypatch)
+    sleeps: list[float] = []
+    monkeypatch.setattr(gla.time, "sleep", sleeps.append)
+    client = MagicMock()
+    client.chat.completions.create.side_effect = [_rate_limit_error(_TPM, retry_after="7"), _ok("x")]
+
+    agent._make_chat_fn(client)("prompt")
+    assert sleeps == [7.5]
+
+
+def test_daily_quota_stops_immediately_without_waiting(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = _make_agent(monkeypatch)
+    sleeps: list[float] = []
+    monkeypatch.setattr(gla.time, "sleep", sleeps.append)
+    client = MagicMock()
+    client.chat.completions.create.side_effect = _rate_limit_error(_TPD)
+
+    with pytest.raises(gla.GroqDailyQuotaExhausted):
+        agent._make_chat_fn(client)("prompt")
+    assert sleeps == [] and client.chat.completions.create.call_count == 1
+
+
+def test_gives_up_after_max_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    agent = _make_agent(monkeypatch)
+    monkeypatch.setattr(gla.time, "sleep", lambda s: None)
+    client = MagicMock()
+    client.chat.completions.create.side_effect = _rate_limit_error(_TPM)
+
+    with pytest.raises(RateLimitError):
+        agent._make_chat_fn(client)("prompt")
+    assert client.chat.completions.create.call_count == GRALLMAgent.MAX_RATE_LIMIT_RETRIES + 1
