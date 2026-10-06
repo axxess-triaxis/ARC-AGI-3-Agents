@@ -49,7 +49,7 @@ Run 3's action mix: `ACTION1` 39, `ACTION2` 30, `ACTION3` 30, `ACTION4` 30. All 
   learned within the game.
 - **The free tier allows about one game a day.** At this model's call rate, one 200-action game
   needs about all of gpt-oss-20b's 200,000 daily tokens on this key.
-- **Small sample.** Three runs, one game, one model on a free tier. This is not a capability
+- **Small sample.** Four runs, one game, one model on a free tier. This is not a capability
   measurement of gpt-oss-20b or of the architecture.
 - **Exit code.** Every run, including the clean ones, ended with process exit code 2 after the
   scorecard was closed. The cause is not investigated.
