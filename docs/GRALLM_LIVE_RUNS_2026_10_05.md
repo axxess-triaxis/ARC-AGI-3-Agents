@@ -22,6 +22,21 @@ in one game.
 Run 3's action mix: `ACTION1` 39, `ACTION2` 30, `ACTION3` 30, `ACTION4` 30. All 10 per-minute
 429s were waited out; none crashed the run. It ran for 186 s at an average of 0.69 actions/s.
 
+## No-LLM GRAAgent re-test with the `RESET` fix (2026-10-06)
+
+| Agent | Code | Scorecard | Levels | Actions | Ended by | Groq calls |
+|---|---|---|---|---|---|---|
+| `graagent` (Cortex `HeuristicReasoner`, no LLM) | `b8e7211` (`RESET` on `GAME_OVER`) | [114410b1…](https://arcprize.org/scorecards/114410b1-d7c4-4068-8e2a-5783e1b9b5f8) | 0/7 | 201 (attempt 1: 129, then `RESET`, attempt 2: 71) | The 200-action cap | 0 |
+
+Action mix: `ACTION1` 139, `ACTION2` 12, `ACTION3` 41, `ACTION4` 8, `RESET` 1. It took 155 s. Only the
+`RESET` fix applies to this agent; the dead-end escape fix does not (see below).
+
+**Three agents now hit `GAME_OVER` at exactly action 129 on the first attempt**: GRALLMAgent runs 3
+and 4, and this GRAAgent run, with very different action mixes. That is strong evidence that `ls20`
+ends an attempt after a fixed number of moves (128 actions, then `GAME_OVER`), whatever moves are
+made. It is not yet confirmed against the game's own rules. If it holds, level 1 has to be solved
+within 128 moves, and no agent so far has changed `levels_completed` at all within that budget.
+
 ## Bugs found by these runs and fixed
 
 1. **Per-minute 429 crashed the run.** The client used `max_retries=0` and `chat_fn` didn't catch
@@ -37,8 +52,8 @@ Run 3's action mix: `ACTION1` 39, `ACTION2` 30, `ACTION3` 30, `ACTION4` 30. All 
    - Fix: a new `GraphExplorer.escape_score` (untried first, then `1/(2 + attempts)`) rotates
      through every action.
    - Commit `9465022` in general-reasoning-agent, branch `fix/dead-end-escape-rotation`.
-   - GRAAgent (no LLM) uses the same `GraphExplorer`. Whether this bug also affected its earlier
-     0/7 has not been checked.
+   - This bug cannot have affected the no-LLM GRAAgent: `GraphExplorer` is used only by
+     `MultiChainReasoner`, and GRAAgent runs Cortex's `HeuristicReasoner`, which never consults it.
 
 ## What these numbers do and do not show
 
