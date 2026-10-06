@@ -91,6 +91,13 @@ class FrameTranslator:
         self._prev_entities: dict[str, dict[str, Any]] = {}
         self._prev_levels_completed: int = 0
 
+    def start_new_attempt(self) -> None:
+        """After a RESET the next frame is a fresh start, not a change caused by
+        the last action: don't diff against the pre-reset entities. Entity ids
+        keep counting up and levels_completed is kept (a RESET replays the
+        current level)."""
+        self._prev_entities = {}
+
     def translate(
         self,
         frame: FrameData,
@@ -283,6 +290,11 @@ class GRAAgent(Agent):
         self.control_loop = ControlLoop(self.cortex)
         self.translator = FrameTranslator()
         self._finalized = False
+        # GAME_OVER ends an attempt, not the game: the agent RESETs and plays on,
+        # keeping what it learned in this game (a fresh Cortex is still built per
+        # game instance -- the zero-context-per-game guarantee is unchanged).
+        # MAX_ACTIONS still bounds the whole game, RESETs included.
+        self.attempts = 1
 
     def _build_reasoner(self) -> Reasoner | None:
         """Hook for subclasses to plug in a different Reasoner (e.g. an
@@ -291,7 +303,10 @@ class GRAAgent(Agent):
         return None
 
     def is_done(self, frames: list[FrameData], latest_frame: FrameData) -> bool:
-        return latest_frame.state in (GameState.WIN, GameState.GAME_OVER)
+        # Only a WIN ends the game. GAME_OVER is handled in choose_action with a
+        # RESET -- previously it ended the run after one failed attempt (live ls20
+        # run 3, 2026-10-05: GAME_OVER at action 129 of a 200-action budget).
+        return latest_frame.state == GameState.WIN
 
     def choose_action(
         self, frames: list[FrameData], latest_frame: FrameData
@@ -301,6 +316,16 @@ class GRAAgent(Agent):
             tick=self.action_counter,
             actions_remaining=max(0, self.MAX_ACTIONS - self.action_counter),
         )
+
+        if latest_frame.state == GameState.GAME_OVER:
+            self.control_loop.end_attempt(observation)
+            self.translator.start_new_attempt()
+            logger.info(
+                "%s: GAME_OVER on attempt %d after %d actions; RESET and retry",
+                self.game_id, self.attempts, self.action_counter,
+            )
+            self.attempts += 1
+            return GameAction.RESET
 
         if observation.done:
             if not self._finalized:

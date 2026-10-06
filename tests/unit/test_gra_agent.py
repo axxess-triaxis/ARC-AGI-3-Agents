@@ -215,10 +215,11 @@ class TestGRAAgentConstruction:
         assert agent1.translator._next_entity_num == 1
         assert agent2.translator._next_entity_num == 0
 
-    def test_is_done_reflects_terminal_states(self) -> None:
+    def test_is_done_only_on_win(self) -> None:
+        # GAME_OVER ends an attempt, not the game: the agent RESETs and retries.
         agent = _make_agent()
         assert agent.is_done([], _frame([[0]], state=GameState.WIN)) is True
-        assert agent.is_done([], _frame([[0]], state=GameState.GAME_OVER)) is True
+        assert agent.is_done([], _frame([[0]], state=GameState.GAME_OVER)) is False
         assert agent.is_done([], _frame([[0]], state=GameState.NOT_FINISHED)) is False
 
 
@@ -255,3 +256,36 @@ class TestGRAAgentChooseAction:
         frame2 = _frame([[0, 0], [0, 5]])
         agent.choose_action([frame1, frame2], frame2)
         assert agent.cortex.tick_count == 2
+
+
+
+@pytest.mark.unit
+class TestGRAAgentGameOverReset:
+    def test_game_over_resets_and_keeps_playing_with_learned_state(self) -> None:
+        from gra.control.state_machine import CognitiveState
+
+        agent = _make_agent()
+        frame1 = _frame([[0, 5], [0, 0]])
+        agent.choose_action([frame1], frame1)
+        assert agent.cortex.tick_count == 1
+
+        dead = _frame([[0, 0], [0, 0]], state=GameState.GAME_OVER)
+        assert agent.choose_action([frame1, dead], dead) is GameAction.RESET
+        assert agent.attempts == 2
+        assert agent.cortex._pending is None  # the death was resolved, i.e. learned
+        assert agent.control_loop.sm.state != CognitiveState.STOP
+        assert agent.translator._prev_entities == {}
+
+        fresh = _frame([[0, 5], [0, 0]])
+        action = agent.choose_action([fresh], fresh)
+        assert action is not GameAction.RESET
+        assert agent.cortex.tick_count == 2  # same Cortex, still learning
+
+    def test_each_game_over_counts_an_attempt(self) -> None:
+        agent = _make_agent()
+        for expected in (2, 3, 4):
+            frame = _frame([[0, 5], [0, 0]])
+            agent.choose_action([frame], frame)
+            dead = _frame([[0]], state=GameState.GAME_OVER)
+            agent.choose_action([frame, dead], dead)
+            assert agent.attempts == expected
